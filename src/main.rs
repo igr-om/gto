@@ -2,28 +2,38 @@ mod poker;
 mod variants;
 mod compute;
 
-
 use compute::monte_carlo::{MonteCarloPool, Task};
+use poker::cards::Card;
+use poker::range::{Range, WeightedHand};
+use rand::thread_rng;
 
 fn main() {
-    let pool = MonteCarloPool::new(4);
+    // Example: build a tiny range
+    let hands = vec![
+        WeightedHand {
+            cards: vec![
+                Card { rank: 14, suit: 'h' },
+                Card { rank: 14, suit: 'd' },
+            ],
+            weight: 1.0,
+        },
+        WeightedHand {
+            cards: vec![
+                Card { rank: 13, suit: 's' },
+                Card { rank: 13, suit: 'c' },
+            ],
+            weight: 1.0,
+        },
+    ];
 
-    for i in 0..10 {
-        pool.submit_task(Task::MonteCarloSample {
-            hand_id: i,
-            iterations: 10_000,
-        });
-    }
+    let range = Range::new(hands);
 
-    for _ in 0..10 {
-        if let Ok(chunk) = pool.results().recv() {
-            let equity = (chunk.wins as f64 + 0.5 * chunk.ties as f64)
-                / chunk.total as f64;
-            println!(
-                "hand {}: equity ~ {:.2}%",
-                chunk.hand_id,
-                equity * 100.0
-            );
-        }
+    let mut rng = thread_rng();
+    let dead: &[Card] = &[];
+
+    if let Some(hand) = range.sample_hand(&mut rng, dead) {
+        println!("Sampled hand: {:?}", hand);
+    } else {
+        println!("No valid hand found");
     }
 }

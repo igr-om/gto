@@ -3,9 +3,7 @@ use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use rand::Rng;
 use std::sync::Arc;
 use std::thread;
-
 use tracing::{trace, debug, info, warn};
-
 use crate::poker::{
     board::Board,
     cards::Card,
