@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="/static/tailwind.css">
+</head>
+<body class="p-6">
+    <h1 class="text-2xl font-bold mb-4">Poker Simulator</h1>
+
+    <form action="/run" method="post" class="space-y-4">
+        <input name="hero" placeholder="Hero hand" class="border p-2 w-full">
+        <input name="board" placeholder="Board cards" class="border p-2 w-full">
+        <input name="range" placeholder="Villain range" class="border p-2 w-full">
+
+        <select name="variant" class="border p-2 w-full">
+            <option value="nlhe">NLHE</option>
+            <option value="plo">PLO</option>
+        </select>
+
+        <button class="bg-blue-600 text-white px-4 py-2 rounded">
+            Run Simulation
+        </button>
+    </form>
+</body>
+</html>

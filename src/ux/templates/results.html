@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="/static/tailwind.css">
+</head>
+<body class="p-6">
+    {% if error %}
+        <div class="bg-red-200 text-red-800 p-3 rounded mb-4">
+            {{ error }}
+        </div>
+    {% endif %}
+
+    <h1 class="text-xl font-bold mb-4">Results</h1>
+
+    <p>Wins: {{ wins }}</p>
+    <p>Ties: {{ ties }}</p>
+    <p>Total: {{ total }}</p>
+
+    <a href="/" class="text-blue-600 underline mt-4 block">Back</a>
+</body>
+</html>

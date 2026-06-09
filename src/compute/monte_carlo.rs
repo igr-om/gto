@@ -39,12 +39,22 @@ pub struct ResultChunk {
     pub wins: u64,
     pub ties: u64,
     pub total: u64,
-}
-
-pub struct MonteCarloPool {
+}pub struct MonteCarloPool {
     task_injector: Arc<Injector<Task>>,
     result_rx: Receiver<ResultChunk>,
     _handles: Vec<thread::JoinHandle<()>>,
+}
+struct WorkerState {
+    id: usize,
+    local: Worker<Task>,
+    stealers: Vec<Stealer<Task>>,
+    global: Arc<Injector<Task>>,
+    result_tx: Sender<ResultChunk>,
+}
+
+pub enum GameVariant {
+    Nlhe,
+    Plo,
 }
 
 impl MonteCarloPool {
@@ -96,25 +106,122 @@ impl MonteCarloPool {
     }
 
     pub fn submit_task(&self, task: Task) {
-        trace!("submitting task");
         self.task_injector.push(task);
     }
 
     pub fn results(&self) -> &Receiver<ResultChunk> {
         &self.result_rx
     }
-}
 
-//
-// Worker internals
-//
+    // -------------------------
+    // Unified API
+    // -------------------------
+    pub fn run(
+        &self,
+        variant: GameVariant,
+        hero_hole: Vec<Card>,
+        board: Board,
+        villain_range: Range,
+        iterations: u32,
+    ) -> ResultChunk {
+        match variant {
+            GameVariant::Nlhe => {
+                let hero = [hero_hole[0], hero_hole[1]];
+                self.run_nlhe(hero, board, villain_range, iterations)
+            }
+            GameVariant::Plo => {
+                let hero = [
+                    hero_hole[0],
+                    hero_hole[1],
+                    hero_hole[2],
+                    hero_hole[3],
+                ];
+                self.run_plo(hero, board, villain_range, iterations)
+            }
+        }
+    }
 
-struct WorkerState {
-    id: usize,
-    local: Worker<Task>,
-    stealers: Vec<Stealer<Task>>,
-    global: Arc<Injector<Task>>,
-    result_tx: Sender<ResultChunk>,
+    // -------------------------
+    // NLHE
+    // -------------------------
+    pub fn run_nlhe(
+        &self,
+        hero_hole: [Card; 2],
+        board: Board,
+        villain_range: Range,
+        iterations: u32,
+    ) -> ResultChunk {
+        let hand_id = rand::random::<u64>();
+
+        self.submit_task(Task::NlheMonteCarlo {
+            hand_id,
+            iterations,
+            hero_hole,
+            board,
+            villain_range,
+        });
+
+        let mut wins = 0;
+        let mut ties = 0;
+        let mut total = 0;
+
+        while let Ok(chunk) = self.result_rx.recv() {
+            if chunk.hand_id != hand_id {
+                continue;
+            }
+
+            wins += chunk.wins;
+            ties += chunk.ties;
+            total += chunk.total;
+
+            if total >= iterations as u64 {
+                break;
+            }
+        }
+
+        ResultChunk { hand_id, wins, ties, total }
+    }
+
+    // -------------------------
+    // PLO
+    // -------------------------
+    pub fn run_plo(
+        &self,
+        hero_hole: [Card; 4],
+        board: Board,
+        villain_range: Range,
+        iterations: u32,
+    ) -> ResultChunk {
+        let hand_id = rand::random::<u64>();
+
+        self.submit_task(Task::PloMonteCarlo {
+            hand_id,
+            iterations,
+            hero_hole,
+            board,
+            villain_range,
+        });
+
+        let mut wins = 0;
+        let mut ties = 0;
+        let mut total = 0;
+
+        while let Ok(chunk) = self.result_rx.recv() {
+            if chunk.hand_id != hand_id {
+                continue;
+            }
+
+            wins += chunk.wins;
+            ties += chunk.ties;
+            total += chunk.total;
+
+            if total >= iterations as u64 {
+                break;
+            }
+        }
+
+        ResultChunk { hand_id, wins, ties, total }
+    }
 }
 
 impl WorkerState {
@@ -297,47 +404,47 @@ fn run_plo_monte_carlo<R: Rng>(
     iterations: u32,
     villain_range: &Range,
 ) -> (u64, u64, u64) {
-    let mut wins = 0;
-    let mut ties = 0;
-    let mut total = 0;
+        let mut wins = 0;
+        let mut ties = 0;
+        let mut total = 0;
 
-    let mut deck = Deck::new();
+        let mut deck = Deck::new();
 
-    for i in 0..iterations {
-        deck.reset();
-        deck.remove_many(&hero_hole);
-        deck.remove_many(&board.cards);
+        for i in 0..iterations {
+            deck.reset();
+            deck.remove_many(&hero_hole);
+            deck.remove_many(&board.cards);
 
-        let mut dead = hero_hole.to_vec();
-        dead.extend_from_slice(&board.cards);
+            let mut dead = hero_hole.to_vec();
+            dead.extend_from_slice(&board.cards);
 
-        let villain = match villain_range.sample_hand(rng, &dead) {
-            Some(v) => [v[0], v[1], v[2], v[3]],
-            None => continue,
-        };
+            let villain = match villain_range.sample_hand(rng, &dead) {
+                Some(v) => [v[0], v[1], v[2], v[3]],
+                None => continue,
+            };
 
-        let mut full_board = board.clone();
-        full_board.complete_to_river(&mut deck, rng);
+            let mut full_board = board.clone();
+            full_board.complete_to_river(&mut deck, rng);
 
-        let hero_rank = plo::evaluate_hand(&hero_hole, &full_board);
-        let villain_rank = plo::evaluate_hand(&villain, &full_board);
+            let hero_rank = plo::evaluate_hand(&hero_hole, &full_board);
+            let villain_rank = plo::evaluate_hand(&villain, &full_board);
 
-        if hero_rank > villain_rank {
-            wins += 1;
-        } else if hero_rank == villain_rank {
-            ties += 1;
+            if hero_rank > villain_rank {
+                wins += 1;
+            } else if hero_rank == villain_rank {
+                ties += 1;
+            }
+
+            total += 1;
+
+            trace!(
+                "PLO iter {}: hero={:?} villain={:?} result={:?}",
+                i,
+                hero_hole,
+                villain,
+                (hero_rank, villain_rank)
+            );
         }
 
-        total += 1;
-
-        trace!(
-            "PLO iter {}: hero={:?} villain={:?} result={:?}",
-            i,
-            hero_hole,
-            villain,
-            (hero_rank, villain_rank)
-        );
+        (wins, ties, total)
     }
-
-    (wins, ties, total)
-}
