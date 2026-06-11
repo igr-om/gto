@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GTO Drill Trainer</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        #hand { font-size: 24px; margin-bottom: 20px; }
+
+        .action-btn {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 18px;
+            cursor: pointer;
+        }
+
+        #feedback { margin-top: 20px; font-size: 20px; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(13, 28px);
+            grid-template-rows: repeat(13, 28px);
+            gap: 2px;
+            margin-bottom: 20px;
+        }
+
+        .cell {
+            width: 28px;
+            height: 28px;
+            font-size: 10px;
+            text-align: center;
+            line-height: 28px;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+
+        #hand-info {
+            margin-top: 10px;
+            font-size: 16px;
+            min-height: 60px;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Stats -->
+<div id="stats" style="margin-bottom: 20px; font-size: 18px;">
+    Loading stats…
+</div>
+
+<!-- Position selector -->
+<select id="pos-select" onchange="loadRange()">
+    <option>UTG</option>
+    <option>MP</option>
+    <option>CO</option>
+    <option>BTN</option>
+    <option>SB</option>
+    <option>BB</option>
+</select>
+
+<!-- Heatmap grid -->
+<div id="range-grid" class="grid"></div>
+
+<!-- Hand info on hover -->
+<div id="hand-info"></div>
+
+<hr>
+
+<h1>GTO Drill Trainer</h1>
+
+<div id="drill">
+    <div id="position"></div>
+    <div id="action"></div>
+    <div id="hand"></div>
+</div>
+
+<div id="buttons"></div>
+
+<div id="feedback"></div>
+
+<script>
+const PREFLOP_ODDS = {
+"AA":{r:0.852,t20:0.801,t10:0.784},
+"KK":{r:0.824,t20:0.768,t10:0.748},
+"QQ":{r:0.798,t20:0.741,t10:0.718},
+"JJ":{r:0.772,t20:0.713,t10:0.687},
+"TT":{r:0.748,t20:0.687,t10:0.659},
+"99":{r:0.720,t20:0.655,t10:0.624},
+"88":{r:0.692,t20:0.626,t10:0.593},
+"77":{r:0.662,t20:0.594,t10:0.558},
+"66":{r:0.631,t20:0.561,t10:0.523},
+"55":{r:0.600,t20:0.528,t10:0.488},
+"44":{r:0.568,t20:0.494,t10:0.452},
+"33":{r:0.535,t20:0.460,t10:0.416},
+"22":{r:0.503,t20:0.427,t10:0.381},
+
+"AKs":{r:0.654,t20:0.612,t10:0.588},
+"AQs":{r:0.646,t20:0.598,t10:0.571},
+"AJs":{r:0.637,t20:0.585,t10:0.556},
+"ATs":{r:0.626,t20:0.570,t10:0.539},
+"A9s":{r:0.604,t20:0.545,t10:0.512},
+"A8s":{r:0.589,t20:0.528,t10:0.493},
+"A7s":{r:0.574,t20:0.510,t10:0.474},
+"A6s":{r:0.559,t20:0.492,t10:0.455},
+"A5s":{r:0.558,t20:0.491,t10:0.454},
+"A4s":{r:0.553,t20:0.485,t10:0.447},
+"A3s":{r:0.548,t20:0.479,t10:0.440},
+"A2s":{r:0.542,t20:0.472,t10:0.432},
+
+"AKo":{r:0.646,t20:0.601,t10:0.575},
+"AQo":{r:0.636,t20:0.587,t10:0.558},
+"AJo":{r:0.624,t20:0.572,t10:0.541},
+"ATo":{r:0.611,t20:0.556,t10:0.523},
+"A9o":{r:0.586,t20:0.528,t10:0.493},
+"A8o":{r:0.569,t20:0.509,t10:0.472},
+"A7o":{r:0.552,t20:0.489,t10:0.450},
+"A6o":{r:0.535,t20:0.469,t10:0.428},
+"A5o":{r:0.533,t20:0.467,t10:0.426},
+"A4o":{r:0.526,t20:0.459,t10:0.417},
+"A3o":{r:0.519,t20:0.451,t10:0.408},
+"A2o":{r:0.511,t20:0.442,t10:0.398},
+
+// … full 169‑hand table continues …
+// I can generate the entire table if you want the full dump.
+};
+
+    
+/* ------------------------------
+   DRILL LOGIC
+--------------------------------*/
+
+async function fetchDrill() {
+    const res = await fetch("/drill");
+    const drill = await res.json();
+
+    window.currentDrill = drill;
+
+    document.getElementById("position").innerText = "Position: " + drill.position;
+    document.getElementById("action").innerText = "Correct Action: ?";
+    document.getElementById("hand").innerText = "Hand: " + drill.hand.map(c => c.rank + c.suit).join(" ");
+
+    renderButtons();
+    document.getElementById("feedback").innerText = "";
+}
+
+function renderButtons() {
+    const actions = ["Open", "Call", "ThreeBet", "FourBet", "Defend"];
+    const container = document.getElementById("buttons");
+    container.innerHTML = "";
+
+    actions.forEach(a => {
+        const btn = document.createElement("button");
+        btn.className = "action-btn";
+        btn.innerText = a;
+        btn.onclick = () => submitAnswer(a);
+        container.appendChild(btn);
+    });
+}
+
+async function submitAnswer(userAction) {
+    const payload = {
+        position: window.currentDrill.position,
+        action: window.currentDrill.action,
+        user_action: userAction,
+        hand: window.currentDrill.hand
+    };
+
+    const res = await fetch("/drill/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+    });
+
+    const result = await res.json();
+
+    const feedback = document.getElementById("feedback");
+
+    if (result.correct) {
+        feedback.innerHTML = `<span style="color: green; font-weight: bold;">Correct!</span>`;
+    } else {
+        feedback.innerHTML = `
+            <span style="color: red; font-weight: bold;">Incorrect</span><br>
+            Correct action: <b>${result.action}</b>
+        `;
+    }
+
+    document.querySelectorAll(".action-btn").forEach(btn => btn.disabled = true);
+
+    setTimeout(fetchNextDrill, 1200);
+}
+
+async function fetchNextDrill() {
+    await fetchStats();
+    const res = await fetch("/drill/next");
+    const drill = await res.json();
+
+    window.currentDrill = drill;
+
+    document.getElementById("position").innerText = "Position: " + drill.position;
+    document.getElementById("action").innerText = "Correct Action: ?";
+    document.getElementById("hand").innerText = "Hand: " + drill.hand.map(c => c.rank + c.suit).join(" ");
+
+    document.getElementById("feedback").innerText = "";
+    renderButtons();
+}
+
+/* ------------------------------
+   STATS
+--------------------------------*/
+
+async function fetchStats() {
+    const res = await fetch("/stats");
+    const s = await res.json();
+
+    document.getElementById("stats").innerHTML =
+        `Accuracy: ${(s.accuracy * 100).toFixed(1)}% (${s.correct}/${s.total})`;
+}
+
+/* ------------------------------
+   HEATMAP
+--------------------------------*/
+
+function heatColor(v) {
+    const red = Math.floor((1 - v) * 255);
+    const green = Math.floor(v * 255);
+    return `rgb(${red}, ${green}, 80)`;
+}
+
+function renderGrid(matrix, hands) {
+    const grid = document.getElementById("range-grid");
+    grid.innerHTML = "";
+
+    for (let r = 0; r < 13; r++) {
+        for (let c = 0; c < 13; c++) {
+            const val = matrix[r][c];
+            const hand = hands[r][c];
+
+            const cell = document.createElement("div");
+            cell.className = "cell";
+            cell.style.background = heatColor(val);
+            cell.innerText = hand;
+
+            cell.onmouseover = () => showHandInfo(hand, val);
+
+            grid.appendChild(cell);
+        }
+    }
+}
+
+function showHandInfo(hand, val) {
+    document.getElementById("hand-info").innerHTML = `
+        <b>${hand}</b><br>
+        Frequency: ${(val * 100).toFixed(1)}%
+    `;
+}
+
+async function loadRange() {
+    const pos = document.getElementById("pos-select").value;
+    const res = await fetch(`/range/heatmap?position=${pos}`);
+    const data = await res.json();
+    renderGrid(data.matrix, data.hands);
+}
+
+function lookupOdds(hand, type) {
+    const entry = PREFLOP_ODDS[hand];
+    if (!entry) return "N/A";
+
+    if (type === "random") return (entry.random * 100).toFixed(1);
+    if (type === "20") return (entry.top20 * 100).toFixed(1);
+
+    return "N/A";
+}
+
+
+/* ------------------------------
+   INITIAL LOAD
+--------------------------------*/
+
+fetchStats();
+fetchDrill();
+loadRange();
+</script>
+
+</body>
+</html>

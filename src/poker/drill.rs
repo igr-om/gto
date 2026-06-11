@@ -1,8 +1,7 @@
-use crate::poker::gto_range::{Position, Action, RangeTable};
+use crate::poker::gto_range::{Position, Action, RangeTable, expand_hand_to_combos};
 use rand::Rng;
 use serde::Serialize;
 use crate::poker::cards::Card;
-use crate::poker::gto_range::{Position, Action};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Drill {
@@ -19,7 +18,6 @@ pub struct DrillResult {
     pub user_action: Action,
     pub correct: bool,
 }
-
 
 impl Drill {
     pub fn generate<R: Rng>(
@@ -40,4 +38,3 @@ impl Drill {
         })
     }
 }
-

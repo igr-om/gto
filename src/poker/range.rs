@@ -1,6 +1,10 @@
 use crate::poker::cards::Card;
 use rand::Rng;
 
+/* ============================
+   TESTS
+   ============================ */
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -27,6 +31,10 @@ mod tests {
     }
 }
 
+/* ============================
+   STRUCTS
+   ============================ */
+
 #[derive(Clone)]
 pub struct WeightedHand {
     pub cards: Vec<Card>, // 2 for NLHE, 4 for PLO
@@ -46,19 +54,37 @@ pub enum HandType {
     Pair,
 }
 
+/* ============================
+   RANGE IMPLEMENTATION
+   ============================ */
+
 impl Range {
+    /// Construct a range from a list of weighted hands
     pub fn new(hands: Vec<WeightedHand>) -> Self {
         let total_weight = hands.iter().map(|h| h.weight).sum();
         Self { hands, total_weight }
     }
 
+    /// Construct a range containing exactly one 2‑card hand
+    pub fn from_hand(cards: [Card; 2]) -> Self {
+        let wh = WeightedHand {
+            cards: vec![cards[0], cards[1]],
+            weight: 1.0,
+        };
+
+        Self {
+            hands: vec![wh],
+            total_weight: 1.0,
+        }
+    }
+
+    /// Sample a hand from the range, respecting blockers
     pub fn sample_hand<R: Rng>(
         &self,
         rng: &mut R,
         dead: &[Card],
     ) -> Option<Vec<Card>> {
-        
-        let mut target = (rng.r#gen::<f64>()) * self.total_weight;
+        let mut target = rng.gen::<f64>() * self.total_weight;
 
         for h in &self.hands {
             if h.cards.iter().any(|c| dead.contains(c)) {
@@ -75,6 +101,10 @@ impl Range {
         None
     }
 }
+
+/* ============================
+   HAND CODE PARSING
+   ============================ */
 
 pub fn parse_hand_code(code: &str) -> (u8, u8, HandType) {
     let chars: Vec<char> = code.chars().collect();

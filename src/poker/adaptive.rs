@@ -1,6 +1,7 @@
+use rand::Rng;
+
 use crate::poker::gto_range::{Position, Action};
 use crate::poker::user_stats::UserStats;
-use rand::Rng;
 
 pub struct AdaptiveEngine;
 
@@ -9,29 +10,55 @@ impl AdaptiveEngine {
         rng: &mut R,
         stats: &UserStats,
     ) -> (Position, Action) {
-        // Find weakest area
-        let mut weakest: Option<((Position, Action), f32)> = None;
+        let positions = [
+            Position::UTG,
+            Position::MP,
+            Position::HJ,
+            Position::CO,
+            Position::BTN,
+            Position::SB,
+            Position::BB,
+        ];
 
-        for ((pos, act), (correct, total)) in &stats.stats {
-            let acc = *correct as f32 / *total as f32;
+        let actions = [
+            Action::Open,
+            Action::Call,
+            Action::ThreeBet,
+            Action::FourBet,
+            Action::Defend,
+        ];
 
-            if weakest.is_none() || acc < weakest.unwrap().1 {
-                weakest = Some(((*pos, *act), acc));
+        let mut weighted: Vec<((Position, Action), f64)> = Vec::new();
+
+        for &pos in &positions {
+            for &act in &actions {
+                let (correct, total) = stats.get(pos, act);
+
+                let accuracy = if total == 0 {
+                    0.5
+                } else {
+                    correct as f64 / total as f64
+                };
+
+                let weight = (1.0 - accuracy) + 0.1;
+
+                weighted.push(((pos, act), weight));
             }
         }
 
-        // If no data yet → random
-        if let Some(((pos, act), _)) = weakest {
-            (pos, act)
-        } else {
-            // fallback: random drill
-            let positions = [Position::UTG, Position::MP, Position::CO, Position::BTN, Position::SB, Position::BB];
-            let actions = [Action::Open, Action::Call, Action::ThreeBet, Action::FourBet, Action::Defend];
+        let sum: f64 = weighted.iter().map(|(_, w)| *w).sum();
+        let mut roll = rng.gen::<f64>() * sum;
 
-            let pos = positions[rng.gen_range(0..positions.len())];
-            let act = actions[rng.gen_range(0..actions.len())];
-
-            (pos, act)
+        for &((pos, act), w) in &weighted {
+            if roll < w {
+                return (pos, act);
+            }
+            roll -= w;
         }
+
+        weighted
+            .first()
+            .map(|((pos, act), _)| (*pos, *act))
+            .unwrap_or((Position::UTG, Action::Open))
     }
 }

@@ -1,153 +1,191 @@
 use std::collections::HashMap;
 use std::str::FromStr;
-use serde::{Serialize, Deserialize};
 
 use crate::poker::cards::Card;
-use crate::poker::range::{Range, WeightedHand};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+/* ============================
+   POSITION + ACTION ENUMS
+   ============================ */
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Position {
-    UTG, MP, CO, BTN, SB, BB,
+    UTG,
+    HJ,
+    CO,
+    BTN,
+    SB,
+    BB,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+impl FromStr for Position {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_uppercase().as_str() {
+            "UTG" => Ok(Position::UTG),
+            "HJ"  => Ok(Position::HJ),
+            "CO"  => Ok(Position::CO),
+            "BTN" => Ok(Position::BTN),
+            "SB"  => Ok(Position::SB),
+            "BB"  => Ok(Position::BB),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
     Open,
     Call,
     ThreeBet,
     FourBet,
-    Defend,
 }
 
-#[derive(Debug, Clone)]
-pub struct RangeEntry {
-    pub hand: String,   // "AKs", "QJo", "77"
-    pub weight: f32,
+impl FromStr for Action {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_uppercase().as_str() {
+            "OPEN" => Ok(Action::Open),
+            "CALL" => Ok(Action::Call),
+            "3BET" | "THREEBET" => Ok(Action::ThreeBet),
+            "4BET" | "FOURBET"  => Ok(Action::FourBet),
+            _ => Err(()),
+        }
+    }
 }
 
+/* ============================
+   COMBO ENTRY (freq + EV)
+   ============================ */
+
+#[derive(Clone, Debug)]
+pub struct ComboEntry {
+    pub freq: f64,
+    pub ev: f64,
+}
+
+/* ============================
+   COMBO RANGE
+   ============================ */
+
+#[derive(Clone, Debug)]
+pub struct ComboRange {
+    pub hands: HashMap<String, ComboEntry>,
+}
+
+impl ComboRange {
+    pub fn new() -> Self {
+        Self {
+            hands: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, hand: String, freq: f64, ev: f64) {
+        self.hands.insert(hand, ComboEntry { freq, ev });
+    }
+
+    pub fn frequency_for_hand(&self, hand: &str) -> Option<f64> {
+        self.hands.get(hand).map(|e| e.freq)
+    }
+
+    pub fn ev_for_hand(&self, hand: &str) -> Option<f64> {
+        self.hands.get(hand).map(|e| e.ev)
+    }
+}
+
+/* ============================
+   RANGE TABLE (POS × ACTION)
+   ============================ */
+
+#[derive(Clone, Debug)]
 pub struct RangeTable {
-    pub table: HashMap<(Position, Action), Vec<RangeEntry>>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum HandType {
-    Suited,
-    Offsuit,
-    Pair,
-}
-
-impl FromStr for Position {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "UTG" => Ok(Position::UTG),
-            "MP"  => Ok(Position::MP),
-            "CO"  => Ok(Position::CO),
-            "BTN" => Ok(Position::BTN),
-            "SB"  => Ok(Position::SB),
-            "BB"  => Ok(Position::BB),
-            _ => Err(()),
-        }
-    }
-}
-
-impl FromStr for Action {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Open"     => Ok(Action::Open),
-            "Call"     => Ok(Action::Call),
-            "ThreeBet" => Ok(Action::ThreeBet),
-            "FourBet"  => Ok(Action::FourBet),
-            "Defend"   => Ok(Action::Defend),
-            _ => Err(()),
-        }
-    }
-}
-
-impl std::str::FromStr for Action {
-    type Err = ();
-
-use std::str::FromStr;
-
-impl FromStr for Position {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "UTG" => Ok(Position::UTG),
-            "MP"  => Ok(Position::MP),
-            "CO"  => Ok(Position::CO),
-            "BTN" => Ok(Position::BTN),
-            "SB"  => Ok(Position::SB),
-            "BB"  => Ok(Position::BB),
-            _ => Err(()),
-        }
-    }
-}
-
-impl FromStr for Action {
-    type Err = ();
-
-        fn from_str(s: &str) -> Result<Self, Self::Err> {
-            match s {
-                "Open" => Ok(Action::Open),
-                "Call" => Ok(Action::Call),
-                "ThreeBet" => Ok(Action::ThreeBet),
-                "FourBet" => Ok(Action::FourBet),
-                "Defend" => Ok(Action::Defend),
-                _ => Err(()),
-            }
-        }
-    }
+    pub table: HashMap<(Position, Action), ComboRange>,
 }
 
 impl RangeTable {
     pub fn new() -> Self {
-        Self { table: HashMap::new() }
+        Self {
+            table: HashMap::new(),
+        }
     }
 
     pub fn add_entry(
         &mut self,
         pos: Position,
-        action: Action,
-        hand: impl Into<String>,
-        weight: f32,
+        act: Action,
+        hand: String,
+        freq: f64,
+        ev: f64,
     ) {
         self.table
-            .entry((pos, action))
-            .or_insert_with(Vec::new)
-            .push(RangeEntry {
-                hand: hand.into(),
-                weight,
-            });
+            .entry((pos, act))
+            .or_insert_with(ComboRange::new)
+            .insert(hand, freq, ev);
     }
 
     pub fn to_combo_range(
         &self,
         pos: Position,
-        action: Action,
-    ) -> Option<Range> {
-        let entries = self.table.get(&(pos, action))?;
-
-        let mut hands = Vec::new();
-
-        for entry in entries {
-            let combos = expand_hand_to_combos(&entry.hand);
-
-            for combo in combos {
-                hands.push(WeightedHand {
-                    cards: combo,
-                    weight: entry.weight as f64,
-                });
-            }
-        }
-
-        Some(Range::new(hands))
+        act: Action,
+    ) -> Option<ComboRange> {
+        self.table.get(&(pos, act)).cloned()
     }
 }
+
+/* ============================
+   HAND EXPANSION (AKs → combos)
+   ============================ */
+
+pub fn expand_hand_to_combos(code: &str) -> Vec<[Card; 2]> {
+    let chars: Vec<char> = code.chars().collect();
+    if chars.len() < 2 {
+        return vec![];
+    }
+
+    let r1 = rank_to_value(chars[0]);
+    let r2 = rank_to_value(chars[1]);
+
+    let suited = chars.len() == 3 && chars[2] == 's';
+    let offsuit = chars.len() == 3 && chars[2] == 'o';
+    let pair = r1 == r2;
+
+    let suits = ['h', 'd', 'c', 's'];
+    let mut combos = vec![];
+
+    if pair {
+        for i in 0..4 {
+            for j in (i + 1)..4 {
+                combos.push([
+                    Card { rank: r1, suit: suits[i] },
+                    Card { rank: r2, suit: suits[j] },
+                ]);
+            }
+        }
+        return combos;
+    }
+
+    for &s1 in &suits {
+        for &s2 in &suits {
+            if s1 == s2 && offsuit {
+                continue;
+            }
+            if s1 != s2 && suited {
+                continue;
+            }
+            combos.push([
+                Card { rank: r1, suit: s1 },
+                Card { rank: r2, suit: s2 },
+            ]);
+        }
+    }
+
+    combos
+}
+
+/* ============================
+   RANK PARSER
+   ============================ */
 
 fn rank_to_value(c: char) -> u8 {
     match c {
@@ -164,71 +202,6 @@ fn rank_to_value(c: char) -> u8 {
         '4' => 4,
         '3' => 3,
         '2' => 2,
-        _ => panic!("Invalid rank {}", c),
+        _ => panic!("Invalid rank"),
     }
-}
-
-fn parse_hand_code(code: &str) -> (u8, u8, HandType) {
-    let chars: Vec<char> = code.chars().collect();
-
-    let r1 = rank_to_value(chars[0]);
-    let r2 = rank_to_value(chars[1]);
-
-    let hand_type = if chars.len() == 3 {
-        match chars[2] {
-            's' => HandType::Suited,
-            'o' => HandType::Offsuit,
-            _ => panic!("Invalid hand type"),
-        }
-    } else if r1 == r2 {
-        HandType::Pair
-    } else {
-        panic!("Invalid hand code {}", code);
-    };
-
-    (r1, r2, hand_type)
-}
-
-pub fn expand_hand_to_combos(code: &str) -> Vec<Vec<Card>> {
-    let (r1, r2, hand_type) = parse_hand_code(code);
-
-    let suits = ['h', 'd', 'c', 's'];
-    let mut combos = Vec::new();
-
-    match hand_type {
-        HandType::Pair => {
-            for i in 0..4 {
-                for j in (i + 1)..4 {
-                    combos.push(vec![
-                        Card { rank: r1, suit: suits[i] },
-                        Card { rank: r1, suit: suits[j] },
-                    ]);
-                }
-            }
-        }
-
-        HandType::Suited => {
-            for s in suits {
-                combos.push(vec![
-                    Card { rank: r1, suit: s },
-                    Card { rank: r2, suit: s },
-                ]);
-            }
-        }
-
-        HandType::Offsuit => {
-            for s1 in suits {
-                for s2 in suits {
-                    if s1 != s2 {
-                        combos.push(vec![
-                            Card { rank: r1, suit: s1 },
-                            Card { rank: r2, suit: s2 },
-                        ]);
-                    }
-                }
-            }
-        }
-    }
-
-    combos
 }
