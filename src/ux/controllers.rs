@@ -233,7 +233,7 @@ pub async fn drill_for_hand(
     let drill = Drill {
         position: pos,
         action: act,
-        hand: cards,
+        hand: cards.iter().cloned().collect(),
     };
 
     Json(drill)

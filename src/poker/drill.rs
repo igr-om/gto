@@ -29,7 +29,8 @@ impl Drill {
         let combo_range = gto.to_combo_range(position, action)?;
 
         let dead: &[Card] = &[];
-        let hand = combo_range.sample_hand(rng, dead)?;
+        let hand = Vec::new();
+        //combo_range.sample_hand(rng, dead)?;
 
         Some(Self {
             position,

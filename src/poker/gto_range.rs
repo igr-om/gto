@@ -1,17 +1,21 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
+use serde::{Deserialize, Serialize};
+
 use crate::poker::cards::Card;
 
 /* ============================
    POSITION + ACTION ENUMS
    ============================ */
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Position {
     UTG,
     HJ,
     CO,
+    MP,
+    Defend,
     BTN,
     SB,
     BB,
@@ -25,6 +29,8 @@ impl FromStr for Position {
             "UTG" => Ok(Position::UTG),
             "HJ"  => Ok(Position::HJ),
             "CO"  => Ok(Position::CO),
+            "MP"  => Ok(Position::MP),
+            "Defend" => Ok(Position::Defend),
             "BTN" => Ok(Position::BTN),
             "SB"  => Ok(Position::SB),
             "BB"  => Ok(Position::BB),
@@ -33,10 +39,11 @@ impl FromStr for Position {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum Action {
     Open,
     Call,
+    Defend,
     ThreeBet,
     FourBet,
 }
@@ -130,6 +137,13 @@ impl RangeTable {
         act: Action,
     ) -> Option<ComboRange> {
         self.table.get(&(pos, act)).cloned()
+    }
+
+    pub fn from_csv(_path: &str) -> Self {
+        // Log a warning that this is a stub
+        eprintln!("Warning: CSV loading is not implemented yet!");
+        // Return a default, empty RangeTable
+        Self::new() 
     }
 }
 

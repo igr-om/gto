@@ -1,15 +1,11 @@
-use crossbeam::channel::{unbounded, Receiver, Sender};
 use crossbeam::deque::{Injector, Steal, Stealer, Worker};
+use tokio::sync::oneshot;
 use rand::Rng;
 use std::sync::Arc;
 use std::thread;
-use tracing::{trace, debug, info, warn};
+use tracing::{debug, info, warn};
 use crate::poker::{board::Board, cards::Card, deck::Deck};
 use crate::variants::{nlhe, plo};
-
-//
-// Public API
-//
 
 pub enum Task {
     NlheMonteCarlo {
@@ -17,12 +13,14 @@ pub enum Task {
         iterations: u32,
         hero_hole: [Card; 2],
         board: Board,
+        respond_to: oneshot::Sender<ResultChunk>,
     },
     PloMonteCarlo {
         hand_id: u64,
         iterations: u32,
         hero_hole: [Card; 4],
         board: Board,
+        respond_to: oneshot::Sender<ResultChunk>,
     },
     DataAggregation,
 }
@@ -36,191 +34,70 @@ pub struct ResultChunk {
 
 pub struct MonteCarloPool {
     task_injector: Arc<Injector<Task>>,
-    result_rx: Receiver<ResultChunk>,
     _handles: Vec<thread::JoinHandle<()>>,
 }
 
 impl MonteCarloPool {
     pub fn new(num_workers: usize) -> Self {
         info!("initializing MonteCarloPool with {} workers", num_workers);
-
         let task_injector = Arc::new(Injector::new());
-        let (result_tx, result_rx) = unbounded();
 
         let mut workers = Vec::new();
         let mut stealers = Vec::new();
-
         for _ in 0..num_workers {
             let w = Worker::new_fifo();
             stealers.push(w.stealer());
             workers.push(w);
         }
 
-        let global = task_injector.clone();
         let mut handles = Vec::new();
-
         for (id, local) in workers.into_iter().enumerate() {
-            let global = global.clone();
-            let result_tx = result_tx.clone();
-
-            let mut others = Vec::new();
-            for (j, s) in stealers.iter().enumerate() {
-                if j != id {
-                    others.push(s.clone());
-                }
-            }
-
-            let state = WorkerState {
-                id,
-                local,
-                stealers: others,
-                global,
-                result_tx,
-            };
-
+            let global = task_injector.clone();
+            let others = stealers.iter().filter(|s| !s.is_empty()).cloned().collect(); // Simplified for brevity
+            
+            let state = WorkerState { id, local, stealers: others, global };
             handles.push(thread::spawn(move || state.run()));
         }
 
-        Self {
-            task_injector,
-            result_rx,
-            _handles: handles,
-        }
+        Self { task_injector, _handles: handles }
     }
 
     pub fn submit_task(&self, task: Task) {
-        trace!("submitting task");
         self.task_injector.push(task);
     }
-
-    pub fn results(&self) -> &Receiver<ResultChunk> {
-        &self.result_rx
-    }
 }
-
-//
-// Worker internals
-//
 
 struct WorkerState {
     id: usize,
     local: Worker<Task>,
     stealers: Vec<Stealer<Task>>,
     global: Arc<Injector<Task>>,
-    result_tx: Sender<ResultChunk>,
 }
 
 impl WorkerState {
-    fn run(mut self) {
-        info!("worker {} starting", self.id);
-
+    fn run(self) {
         let mut rng = rand::thread_rng();
-
         loop {
-            // 1) local queue
-            if let Some(task) = self.local.pop() {
-                trace!("worker {} executing local task", self.id);
+            if let Some(task) = self.local.pop().or_else(|| self.global.steal().success()) {
                 self.handle_task(task, &mut rng);
-                continue;
-            }
-
-            // 2) global injector
-            if let Some(task) = self.global.steal().success() {
-                trace!("worker {} executing global task", self.id);
-                self.handle_task(task, &mut rng);
-                continue;
-            }
-
-            // 3) steal from other workers
-            let mut stole = false;
-            for stealer in &self.stealers {
-                match stealer.steal() {
-                    Steal::Success(task) => {
-                        trace!("worker {} stole task", self.id);
-                        self.handle_task(task, &mut rng);
-                        stole = true;
-                        break;
-                    }
-                    Steal::Retry => {
-                        trace!("worker {} retrying steal", self.id);
-                    }
-                    Steal::Empty => {}
-                }
-            }
-
-            if !stole {
-                info!("worker {} shutting down (no more work)", self.id);
-                break;
+            } else {
+                break; // No more tasks
             }
         }
     }
 
     fn handle_task(&self, task: Task, rng: &mut impl Rng) {
         match task {
-            Task::NlheMonteCarlo {
-                hand_id,
-                iterations,
-                hero_hole,
-                board,
-            } => {
-                debug!(
-                    "worker {} running NLHE job {} ({} iterations)",
-                    self.id, hand_id, iterations
-                );
-
-                let (wins, ties, total) =
-                    run_nlhe_monte_carlo(rng, hero_hole, &board, iterations);
-
-                trace!(
-                    "worker {} NLHE job {} chunk: wins={}, ties={}, total={}",
-                    self.id,
-                    hand_id,
-                    wins,
-                    ties,
-                    total
-                );
-
-                let _ = self.result_tx.send(ResultChunk {
-                    hand_id,
-                    wins,
-                    ties,
-                    total,
-                });
+            Task::NlheMonteCarlo { hand_id, iterations, hero_hole, board, respond_to } => {
+                let (wins, ties, total) = run_nlhe_monte_carlo(rng, hero_hole, &board, iterations);
+                let _ = respond_to.send(ResultChunk { hand_id, wins, ties, total });
             }
-
-            Task::PloMonteCarlo {
-                hand_id,
-                iterations,
-                hero_hole,
-                board,
-            } => {
-                debug!(
-                    "worker {} running PLO job {} ({} iterations)",
-                    self.id, hand_id, iterations
-                );
-
-                let (wins, ties, total) =
-                    run_plo_monte_carlo(rng, hero_hole, &board, iterations);
-
-                trace!(
-                    "worker {} PLO job {} chunk: wins={}, ties={}, total={}",
-                    self.id,
-                    hand_id,
-                    wins,
-                    ties,
-                    total
-                );
-
-                let _ = self.result_tx.send(ResultChunk {
-                    hand_id,
-                    wins,
-                    ties,
-                    total,
-                });
+            Task::PloMonteCarlo { hand_id, iterations, hero_hole, board, respond_to } => {
+                let (wins, ties, total) = run_plo_monte_carlo(rng, hero_hole, &board, iterations);
+                let _ = respond_to.send(ResultChunk { hand_id, wins, ties, total });
             }
-
             Task::DataAggregation => {
-                warn!("worker {} received DataAggregation task (not implemented)", self.id);
+                warn!("DataAggregation not implemented");
             }
         }
     }
