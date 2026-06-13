@@ -28,9 +28,21 @@ impl Drill {
     ) -> Option<Self> {
         let combo_range = gto.to_combo_range(position, action)?;
 
-        let dead: &[Card] = &[];
-        let hand = Vec::new();
-        //combo_range.sample_hand(rng, dead)?;
+        // Select a random hand from the range
+        let hands: Vec<_> = combo_range.hands.keys().collect();
+        if hands.is_empty() {
+            return None;
+        }
+        
+        let hand_code = hands[rng.gen_range(0..hands.len())];
+        let expanded = expand_hand_to_combos(hand_code);
+        
+        let hand = if !expanded.is_empty() {
+            let selected = &expanded[rng.gen_range(0..expanded.len())];
+            vec![selected[0], selected[1]]
+        } else {
+            vec![]
+        };
 
         Some(Self {
             position,

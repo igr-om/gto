@@ -13,7 +13,7 @@ use serde::Serialize;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 
-use ux::controllers::{index, run};
+use ux::controllers::{index, run, dashboard, odds_for_hand};
 use crate::poker::{
     cards::Card,
     gto_range::RangeTable,
@@ -137,12 +137,14 @@ async fn main() {
     };
 
     let app = Router::new()
-        .route("/", get(index))
+        .route("/", get(dashboard))
+        .route("/dashboard", get(dashboard))
         .route("/run", post(run))
         .route("/drill", get(get_drill))
-        .route("/drill/submit", post(submit_drill))
-        .route("/drill/next", get(next_drill))
+        .route("/next-drill", get(next_drill))
+        .route("/submit-drill", post(submit_drill))
         .route("/stats", get(get_stats))
+        .route("/odds/:hand", get(odds_for_hand))
         .nest_service("/static", ServeDir::new("src/ux/static"))
         .with_state(state);
 

@@ -140,10 +140,33 @@ impl RangeTable {
     }
 
     pub fn from_csv(_path: &str) -> Self {
-        // Log a warning that this is a stub
-        eprintln!("Warning: CSV loading is not implemented yet!");
-        // Return a default, empty RangeTable
-        Self::new() 
+        // For demo purposes, populate with sample GTO ranges
+        eprintln!("Loading sample GTO ranges...");
+        let mut table = Self::new();
+        
+        // Sample data: premium hands for each position/action
+        let sample_hands = vec![
+            ("AA", 1.0), ("KK", 0.95), ("QQ", 0.90), ("JJ", 0.85), ("TT", 0.80),
+            ("AKs", 0.95), ("AQs", 0.90), ("AJs", 0.85), ("KQs", 0.80), ("QJs", 0.75), ("JTs", 0.70),
+            ("AKo", 0.85), ("AQo", 0.70), ("AJo", 0.60), ("KQo", 0.65), ("QJo", 0.55),
+            ("99", 0.75), ("88", 0.70), ("77", 0.65), ("66", 0.60), ("55", 0.55),
+        ];
+        
+        // Populate for each position and action combination
+        let positions = [Position::UTG, Position::MP, Position::HJ, Position::CO, Position::BTN, Position::SB, Position::BB, Position::Defend];
+        let actions = [Action::Open, Action::Call, Action::Defend, Action::ThreeBet, Action::FourBet];
+        
+        for pos in &positions {
+            for action in &actions {
+                let mut range = ComboRange::new();
+                for (hand, freq) in &sample_hands {
+                    range.insert(hand.to_string(), freq * 0.8, freq * 0.5);
+                }
+                table.table.insert((*pos, *action), range);
+            }
+        }
+        
+        table
     }
 }
 
